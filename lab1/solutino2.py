@@ -6,16 +6,19 @@ import time
 BRIDGE_NAME = "br0"
 BRIDGE_IP = "192.168.100.1/24"
 BRIDGE_NET = "192.168.100.0/24"
-TAP0_NAME = "tap0"
-TAP1_NAME = "tap1"
 VM1_NAME = "vm1"
 VM2_NAME = "vm2"
 VM1_IP = "192.168.100.2/24"
 VM2_IP = "192.168.100.3/24"
+VM1_MAC = "00:11:22:33:44:55"
+VM2_MAC = "00:11:22:33:44:66"
 GATEWAY_IP = "192.168.100.1"
 
 def run(cmd):
     subprocess.run(cmd, shell=True, check=True)
+
+def run_ignore(cmd):
+    subprocess.run(cmd, shell=True, stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
 
 def get_output(cmd):
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
@@ -32,16 +35,6 @@ run(f"ip link add name {BRIDGE_NAME} type bridge")
 run(f"ip addr add {BRIDGE_IP} dev {BRIDGE_NAME}")
 run(f"ip link set dev {BRIDGE_NAME} up")
 
-# Create TAP devices
-run(f"ip tuntap add dev {TAP0_NAME} mode tap")
-run(f"ip tuntap add dev {TAP1_NAME} mode tap")
-run(f"ip link set dev {TAP0_NAME} up")
-run(f"ip link set dev {TAP1_NAME} up")
-
-# Add TAPs to bridge
-run(f"ip link set dev {TAP0_NAME} master {BRIDGE_NAME}")
-run(f"ip link set dev {TAP1_NAME} master {BRIDGE_NAME}")
-
 # Enable IP forwarding
 run("sysctl -w net.ipv4.ip_forward=1")
 
@@ -51,8 +44,8 @@ run(f"iptables -A FORWARD -i {EXTERNAL_IF} -o {BRIDGE_NAME} -m state --state REL
 run(f"iptables -A FORWARD -i {BRIDGE_NAME} -o {EXTERNAL_IF} -j ACCEPT")
 
 # Create LXC containers
-run(f"lxc-create -n {VM1_NAME} -t ubuntu -- --release focal")
-run(f"lxc-create -n {VM2_NAME} -t ubuntu -- --release focal")
+run_ignore(f"lxc-create -n {VM1_NAME} -t ubuntu -- --release focal")
+run_ignore(f"lxc-create -n {VM2_NAME} -t ubuntu -- --release focal")
 
 # Configure VM1
 vm1_config = f"""lxc.include = /usr/share/lxc/config/ubuntu.common.conf
@@ -62,7 +55,8 @@ lxc.net.0.type = veth
 lxc.net.0.link = {BRIDGE_NAME}
 lxc.net.0.flags = up
 lxc.net.0.name = eth0
-lxc.net.0.hwaddr = 00:16:3e:xx:xx:01
+lxc.net.0.veth.pair = tap0
+lxc.net.0.hwaddr = {VM1_MAC}
 """
 write_file(f"/var/lib/lxc/{VM1_NAME}/config", vm1_config)
 
@@ -74,7 +68,8 @@ lxc.net.0.type = veth
 lxc.net.0.link = {BRIDGE_NAME}
 lxc.net.0.flags = up
 lxc.net.0.name = eth0
-lxc.net.0.hwaddr = 00:16:3e:xx:xx:02
+lxc.net.0.veth.pair = tap1
+lxc.net.0.hwaddr = {VM2_MAC}
 """
 write_file(f"/var/lib/lxc/{VM2_NAME}/config", vm2_config)
 
@@ -85,11 +80,11 @@ time.sleep(3)
 
 # Configure IPs and DNS inside containers
 run(f"lxc-attach -n {VM1_NAME} -- ip addr add {VM1_IP} dev eth0")
-run(f"lxc-attach -n {VM1_NAME} -- ip link set dev eth0 up")
+run(f"lxc-attach -n {VM1_NAME} -- ip link set eth0 up")
 run(f"lxc-attach -n {VM1_NAME} -- ip route add default via {GATEWAY_IP}")
 run(f"lxc-attach -n {VM1_NAME} -- bash -c \"echo 'nameserver 8.8.8.8' > /etc/resolv.conf\"")
 
 run(f"lxc-attach -n {VM2_NAME} -- ip addr add {VM2_IP} dev eth0")
-run(f"lxc-attach -n {VM2_NAME} -- ip link set dev eth0 up")
+run(f"lxc-attach -n {VM2_NAME} -- ip link set eth0 up")
 run(f"lxc-attach -n {VM2_NAME} -- ip route add default via {GATEWAY_IP}")
 run(f"lxc-attach -n {VM2_NAME} -- bash -c \"echo 'nameserver 8.8.8.8' > /etc/resolv.conf\"")
