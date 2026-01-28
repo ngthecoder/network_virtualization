@@ -26,46 +26,46 @@ run(f"ip link add name {BRIDGE_NAME} type bridge")
 run(f"ip addr add {BRIDGE_IP} dev {BRIDGE_NAME}")
 run(f"ip link set dev {BRIDGE_NAME} up")
 
-# Create TAP devices with MAC addresses
+# Create TAP devices with IPs and MACs
 run(f"ip tuntap add dev {TAP0_NAME} mode tap")
 run(f"ip link set dev {TAP0_NAME} address {TAP0_MAC}")
+run(f"ip link set dev {TAP0_NAME} master {BRIDGE_NAME}")
 run(f"ip link set dev {TAP0_NAME} up")
 
 run(f"ip tuntap add dev {TAP1_NAME} mode tap")
 run(f"ip link set dev {TAP1_NAME} address {TAP1_MAC}")
-run(f"ip link set dev {TAP1_NAME} up")
-
-# Add TAPs to bridge
-run(f"ip link set dev {TAP0_NAME} master {BRIDGE_NAME}")
 run(f"ip link set dev {TAP1_NAME} master {BRIDGE_NAME}")
-
-# Assign IPs to TAP devices
-run(f"ip addr add {TAP0_IP} dev {TAP0_NAME}")
-run(f"ip addr add {TAP1_IP} dev {TAP1_NAME}")
+run(f"ip link set dev {TAP1_NAME} up")
 
 # Create LXC containers
 run(f"lxc-create -n {VM1_NAME} -t ubuntu -- --release focal")
 run(f"lxc-create -n {VM2_NAME} -t ubuntu -- --release focal")
 
-# Configure VM1 - use tap0 directly
+# Configure VM1 - use veth connected to bridge
 vm1_config = f"""lxc.include = /usr/share/lxc/config/ubuntu.common.conf
 lxc.rootfs.path = dir:/var/lib/lxc/{VM1_NAME}/rootfs
 lxc.uts.name = {VM1_NAME}
-lxc.net.0.type = phys
-lxc.net.0.link = {TAP0_NAME}
+lxc.net.0.type = veth
+lxc.net.0.link = {BRIDGE_NAME}
 lxc.net.0.flags = up
 lxc.net.0.name = eth0
+lxc.net.0.hwaddr = {TAP0_MAC}
+lxc.net.0.ipv4.address = {TAP0_IP}
+lxc.net.0.ipv4.gateway = {GATEWAY_IP}
 """
 write_file(f"/var/lib/lxc/{VM1_NAME}/config", vm1_config)
 
-# Configure VM2 - use tap1 directly
+# Configure VM2 - use veth connected to bridge
 vm2_config = f"""lxc.include = /usr/share/lxc/config/ubuntu.common.conf
 lxc.rootfs.path = dir:/var/lib/lxc/{VM2_NAME}/rootfs
 lxc.uts.name = {VM2_NAME}
-lxc.net.0.type = phys
-lxc.net.0.link = {TAP1_NAME}
+lxc.net.0.type = veth
+lxc.net.0.link = {BRIDGE_NAME}
 lxc.net.0.flags = up
 lxc.net.0.name = eth0
+lxc.net.0.hwaddr = {TAP1_MAC}
+lxc.net.0.ipv4.address = {TAP1_IP}
+lxc.net.0.ipv4.gateway = {GATEWAY_IP}
 """
 write_file(f"/var/lib/lxc/{VM2_NAME}/config", vm2_config)
 
@@ -73,7 +73,3 @@ write_file(f"/var/lib/lxc/{VM2_NAME}/config", vm2_config)
 run(f"lxc-start -n {VM1_NAME}")
 run(f"lxc-start -n {VM2_NAME}")
 time.sleep(3)
-
-# Set default route inside VMs
-run(f"lxc-attach -n {VM1_NAME} -- ip route add default via {GATEWAY_IP}")
-run(f"lxc-attach -n {VM2_NAME} -- ip route add default via {GATEWAY_IP}")
