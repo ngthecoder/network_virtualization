@@ -17,15 +17,19 @@ def run_ignore(cmd):
 
 def get_output(cmd):
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-    return result.stdout.strip()
+    return result.stdout.strip().split('\n')[0].strip()
 
 def write_file(path, content):
     subprocess.run(f"tee {path}", shell=True, input=content.encode(), stdout=subprocess.DEVNULL)
 
 # Detect external interface and current config
 EXTERNAL_IF = get_output("ip route | grep default | awk '{print $5}' | head -1")
-CURRENT_IP = get_output(f"ip addr show {EXTERNAL_IF} | grep 'inet ' | awk '{{print $2}}'")
-CURRENT_GW = get_output("ip route | grep default | awk '{print $3}'")
+CURRENT_IP = get_output(f"ip addr show {EXTERNAL_IF} | grep 'inet ' | head -1 | awk '{{print $2}}'")
+CURRENT_GW = get_output("ip route | grep default | head -1 | awk '{print $3}'")
+
+print(f"External IF: {EXTERNAL_IF}")
+print(f"Current IP: {CURRENT_IP}")
+print(f"Current GW: {CURRENT_GW}")
 
 # Create bridge
 run(f"ip link add name {BRIDGE_NAME} type bridge")
@@ -38,7 +42,7 @@ run(f"ip link set dev {EXTERNAL_IF} master {BRIDGE_NAME}")
 run_ignore(f"ip addr del {CURRENT_IP} dev {EXTERNAL_IF}")
 run(f"ip addr add {CURRENT_IP} dev {BRIDGE_NAME}")
 run_ignore("ip route del default")
-run(f"ip route add default via {CURRENT_GW} dev {BRIDGE_NAME}")
+run(f"ip route add default via {CURRENT_GW}")
 
 # Create LXC containers
 run_ignore(f"lxc-create -n {VM1_NAME} -t ubuntu -- --release focal")
