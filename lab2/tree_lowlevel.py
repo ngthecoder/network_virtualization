@@ -1,7 +1,7 @@
 #!/usr/bin/python
 
 import sys
-from mininet.node import Host, OVSSwitch, Controller
+from mininet.node import Host, OVSSwitch, OVSController
 from mininet.link import Link
 from mininet.log import setLogLevel
 from mininet.util import dumpNodeConnections
@@ -10,8 +10,8 @@ from mininet.util import dumpNodeConnections
 def run_experiment(n):
     """Create the tree topology using low-level API and test connectivity."""
 
-    c0 = Controller('c0', inNamespace=False)
-    
+    c0 = OVSController('c0', inNamespace=False)
+
     core = OVSSwitch('c1', inNamespace=False)
 
     agg_switches = []
@@ -32,7 +32,6 @@ def run_experiment(n):
 
             for k in range(1, 3):
                 host_index = 2 * (edge_index - 1) + k
-
                 host = Host('h{}'.format(host_index))
                 hosts.append(host)
                 Link(host, edge)
