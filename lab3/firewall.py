@@ -56,6 +56,21 @@ def cleanup():
     run(f"ip netns exec {INT_NS} pkill -f 'nc ' 2>/dev/null", check=False)
     run(f"ip netns exec {INT_NS} pkill -f 'nc -l' 2>/dev/null", check=False)
     run(f"ovs-vsctl --if-exists del-br {BRIDGE}", check=False)
+
+    # Clean up orphaned QoS and Queue entries left from previous runs
+    result = run("ovs-vsctl --no-headings --columns=_uuid list qos", check=False)
+    if result.stdout.strip():
+        for uuid in result.stdout.strip().split("\n"):
+            uuid = uuid.strip()
+            if uuid:
+                run(f"ovs-vsctl --if-exists destroy qos {uuid}", check=False)
+    result = run("ovs-vsctl --no-headings --columns=_uuid list queue", check=False)
+    if result.stdout.strip():
+        for uuid in result.stdout.strip().split("\n"):
+            uuid = uuid.strip()
+            if uuid:
+                run(f"ovs-vsctl --if-exists destroy queue {uuid}", check=False)
+
     run(f"ip netns del {INT_NS} 2>/dev/null", check=False)
     run(f"ip netns del {EXT_NS} 2>/dev/null", check=False)
     run(f"ip link del {INT_VETH_BR} 2>/dev/null", check=False)
@@ -93,6 +108,19 @@ def setup_namespaces():
     # Bring up bridge-side veth endpoints
     run(f"ip link set {INT_VETH_BR} up")
     run(f"ip link set {EXT_VETH_BR} up")
+
+    # Disable checksum offloading on all veth interfaces.
+    # veth pairs defer checksum computation to hardware, but there is no
+    # real NIC behind them. When OVS rewrites IP addresses (NAT in Table 5),
+    # the TCP/UDP checksum in the packet becomes stale. Normally the kernel
+    # would recompute it, but with offloading enabled it skips this step,
+    # resulting in packets the receiver silently drops. Turning off tx
+    # offloading forces the kernel to compute correct checksums in software.
+    run(f"ethtool -K {INT_VETH_BR} tx off", check=False)
+    run(f"ethtool -K {EXT_VETH_BR} tx off", check=False)
+    run(f"ip netns exec {INT_NS} ethtool -K {INT_VETH} tx off", check=False)
+    run(f"ip netns exec {EXT_NS} ethtool -K {EXT_VETH} tx off", check=False)
+
     print("Namespaces and veth pairs configured.\n")
 
 
