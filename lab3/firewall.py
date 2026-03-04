@@ -53,8 +53,8 @@ def run(cmd, check=True, capture=False):
 def cleanup():
     """Remove all OVS bridges, namespaces, and veth pairs."""
     print("Cleaning up previous configuration...")
-    run(f"ip netns exec {INT_NS} pkill -f 'http.server' 2>/dev/null", check=False)
     run(f"ip netns exec {INT_NS} pkill -f 'nc ' 2>/dev/null", check=False)
+    run(f"ip netns exec {INT_NS} pkill -f 'nc -l' 2>/dev/null", check=False)
     run(f"ovs-vsctl --if-exists del-br {BRIDGE}", check=False)
     run(f"ip netns del {INT_NS} 2>/dev/null", check=False)
     run(f"ip netns del {EXT_NS} 2>/dev/null", check=False)
@@ -351,26 +351,25 @@ def test():
 
     # ── Test 3: HTTP external → internal (should SUCCEED) ──────────────────
     print("\n--- Test 3: HTTP external -> internal port 80 (expect SUCCESS) ---")
-    print("  Starting HTTP server on internal host (port 80)...")
-    run(f"ip netns exec {INT_NS} python3 -m http.server 80 &>/dev/null &",
+    print("  Starting nc listener on internal host (port 80)...")
+    run(f"ip netns exec {INT_NS} bash -c 'while true; do echo -e \"HTTP/1.1 200 OK\\r\\n\" | nc -l -p 80 -q 1; done' &>/dev/null &",
         check=False)
     time.sleep(1)
 
-    print("  External curls NAT IP on port 80")
+    print("  External connects to NAT IP on port 80 via nc")
     print("  Path: Table 0(VLAN 20) -> 1 -> 2(route to port 1) -> "
           "3(VLAN 20, TCP dst 80 ALLOWED) -> 4(queue 1) -> "
           "5(NAT dst->10.0.0.1) -> 6(output port 1)")
     result = run(
-        f"ip netns exec {EXT_NS} curl -s -o /dev/null -w "
-        f"'%{{http_code}}' --connect-timeout 3 http://{NAT_IP}:80/",
-        capture=False, check=False
+        f"ip netns exec {EXT_NS} nc -z -w 3 {NAT_IP} 80",
+        capture=True, check=False
     )
-    if result.stdout.strip() == "'200'" or "200" in result.stdout:
-        print("  HTTP connection SUCCEEDED (status 200)")
+    if result.returncode == 0:
+        print("  HTTP (port 80) connection SUCCEEDED (expected)")
     else:
-        print(f"  HTTP response: {result.stdout.strip()}")
+        print("  HTTP (port 80) connection FAILED (unexpected)")
 
-    run(f"ip netns exec {INT_NS} pkill -f 'http.server 80'", check=False)
+    run(f"ip netns exec {INT_NS} pkill -f 'nc -l -p 80'", check=False)
 
     # ── Test 4: SSH external → internal (should be BLOCKED) ────────────────
     print("\n--- Test 4: SSH external -> internal port 22 (expect BLOCKED) ---")
