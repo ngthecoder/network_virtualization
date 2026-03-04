@@ -352,7 +352,7 @@ def test():
     # ── Test 3: HTTP external → internal (should SUCCEED) ──────────────────
     print("\n--- Test 3: HTTP external -> internal port 80 (expect SUCCESS) ---")
     print("  Starting nc listener on internal host (port 80)...")
-    run(f"ip netns exec {INT_NS} bash -c 'while true; do echo -e \"HTTP/1.1 200 OK\\r\\n\" | nc -l -p 80 -q 1; done' &>/dev/null &",
+    run(f"ip netns exec {INT_NS} timeout 5 nc -l -p 80 &>/dev/null &",
         check=False)
     time.sleep(1)
 
@@ -361,7 +361,7 @@ def test():
           "3(VLAN 20, TCP dst 80 ALLOWED) -> 4(queue 1) -> "
           "5(NAT dst->10.0.0.1) -> 6(output port 1)")
     result = run(
-        f"ip netns exec {EXT_NS} nc -z -w 3 {NAT_IP} 80",
+        f"timeout 5 ip netns exec {EXT_NS} bash -c 'echo test | nc -w 2 {NAT_IP} 80'",
         capture=True, check=False
     )
     if result.returncode == 0:
@@ -369,19 +369,20 @@ def test():
     else:
         print("  HTTP (port 80) connection FAILED (unexpected)")
 
-    run(f"ip netns exec {INT_NS} pkill -f 'nc -l -p 80'", check=False)
+    run(f"ip netns exec {INT_NS} pkill -f 'nc -l' 2>/dev/null", check=False)
 
     # ── Test 4: SSH external → internal (should be BLOCKED) ────────────────
     print("\n--- Test 4: SSH external -> internal port 22 (expect BLOCKED) ---")
     print("  Starting nc listener on internal host (port 22)...")
-    run(f"ip netns exec {INT_NS} nc -l -p 22 &>/dev/null &", check=False)
+    run(f"ip netns exec {INT_NS} timeout 5 nc -l -p 22 &>/dev/null &",
+        check=False)
     time.sleep(0.5)
 
     print("  External attempts TCP connection to NAT IP on port 22")
     print("  Path: Table 0(VLAN 20) -> 1 -> 2(route to port 1) -> "
           "3(VLAN 20, TCP dst 22 DROPPED)")
     result = run(
-        f"ip netns exec {EXT_NS} nc -z -w 2 {NAT_IP} 22",
+        f"timeout 5 ip netns exec {EXT_NS} bash -c 'echo test | nc -w 2 {NAT_IP} 22'",
         capture=True, check=False
     )
     if result.returncode != 0:
@@ -389,7 +390,7 @@ def test():
     else:
         print("  SSH connection succeeded (unexpected!)")
 
-    run(f"ip netns exec {INT_NS} pkill -f 'nc -l -p 22'", check=False)
+    run(f"ip netns exec {INT_NS} pkill -f 'nc -l' 2>/dev/null", check=False)
 
     # ── Dump learned MAC entries and flow statistics ───────────────────────
     print("\n--- Learned MAC Entries (Table 10) ---")
